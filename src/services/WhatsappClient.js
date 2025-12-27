@@ -22,6 +22,29 @@ function startClient(id) {
     },
   });
 
+  function isWaShieldCiphertext(text) {
+  try {
+    if (!text || typeof text !== "string") return false;
+
+    // quick base64 check (rough)
+    if (!/^[A-Za-z0-9+/=]+$/.test(text)) return false;
+
+    const decoded = Buffer.from(text, "base64").toString("utf8");
+    const json = JSON.parse(decoded);
+
+    return (
+      json &&
+      json.v === 1 &&
+      typeof json.iv === "string" &&
+      typeof json.ciphertext === "string" &&
+      typeof json.tag === "string"
+    );
+  } catch (e) {
+    return false;
+  }
+}
+
+
   clientsReady[id] = false;
 
   clients[id].on("qr", (qr) => {
@@ -41,31 +64,39 @@ function startClient(id) {
         process.env.PROCESS_MESSAGE_FROM_CLIENT === "true" &&
         msg.from !== "status@broadcast"
       ) {
+        // 🚫 Ignore non-ciphertext messages
+        if (!isWaShieldCiphertext(msg.body)) {
+          console.log(`[Client ${id}] Ignored non-ciphertext message`);
+          return;
+        }
+
         const data = {
           from: msg.from,
           body: msg.body,
-          timestamp: Date.now(), 
+          timestamp: Date.now(),
         };
 
+        // save proof
         lastMessageByClient[id] = data;
 
-        // Add to inbox
-        if (!inboxByClient[id]) {
-          inboxByClient[id] = [];
-        }
+        // save inbox
+        if (!inboxByClient[id]) inboxByClient[id] = [];
         inboxByClient[id].push(data);
-        
-        // Keep only last 30 messages
+
+        // keep last 30 only
         if (inboxByClient[id].length > 30) {
           inboxByClient[id].shift();
         }
+
+        console.log(`[Client ${id}] 🔐 WAShield ciphertext received`);
+
 
         console.log(`[Client ${id}] 📩 Received`);
         console.log("From:", data.from);
         console.log("Body:", data.body);
 
         // Optional: auto ACK to prove receive end-to-end
-        // await clients[id].sendMessage(msg.from, "✅ WA-Bridge received your message");
+        // await clients[id].sendMessage(msg.from, "✅ backend received your message");
       }
     } catch (error) {
       console.error("Message handler error:", error);
